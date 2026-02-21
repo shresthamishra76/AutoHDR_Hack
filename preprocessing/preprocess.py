@@ -21,9 +21,10 @@ with the hyperparameters from your config.
 import argparse
 import os
 import re
-import shutil
 import sys
+import time
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import yaml
@@ -83,53 +84,57 @@ def apply_cli_overrides(cfg: dict, args: argparse.Namespace) -> dict:
 
 
 def discover_pairs_uuid_camera(input_dir: str, extensions: set) -> list:
-    """
-    Discover pairs with naming: {uuid}_{camera}_original.{ext} / {uuid}_{camera}_generated.{ext}
-    """
     files = defaultdict(dict)
     pattern = re.compile(r"^(.+)_(original|generated)$", re.IGNORECASE)
 
-    for entry in Path(input_dir).iterdir():
+    for entry in os.scandir(input_dir):
         if not entry.is_file():
             continue
-        ext = entry.suffix.lower()
+        name = entry.name
+        dot = name.rfind(".")
+        if dot < 0:
+            continue
+        ext = name[dot:].lower()
         if ext not in extensions:
             continue
-        stem = entry.stem
+        stem = name[:dot]
         m = pattern.match(stem)
         if not m:
             continue
         key, role = m.group(1), m.group(2).lower()
-        files[key][role] = str(entry)
+        files[key][role] = entry.path
 
     pairs = []
     for key in sorted(files):
         if "original" in files[key] and "generated" in files[key]:
             pairs.append({
                 "id": key,
-                "A": files[key]["original"],     # distorted / fisheye
-                "B": files[key]["generated"],     # rectified / clean
+                "A": files[key]["original"],
+                "B": files[key]["generated"],
             })
     return pairs
 
 
 def discover_pairs_suffix(input_dir: str, suffix_a: str, suffix_b: str, extensions: set) -> list:
-    """Discover pairs with naming: {name}{suffix_a}.{ext} / {name}{suffix_b}.{ext}"""
     files = defaultdict(dict)
 
-    for entry in Path(input_dir).iterdir():
+    for entry in os.scandir(input_dir):
         if not entry.is_file():
             continue
-        ext = entry.suffix.lower()
+        name = entry.name
+        dot = name.rfind(".")
+        if dot < 0:
+            continue
+        ext = name[dot:].lower()
         if ext not in extensions:
             continue
-        stem = entry.stem
+        stem = name[:dot]
         if stem.endswith(suffix_a):
             key = stem[: -len(suffix_a)]
-            files[key]["A"] = str(entry)
+            files[key]["A"] = entry.path
         elif stem.endswith(suffix_b):
             key = stem[: -len(suffix_b)]
-            files[key]["B"] = str(entry)
+            files[key]["B"] = entry.path
 
     pairs = []
     for key in sorted(files):
@@ -139,23 +144,28 @@ def discover_pairs_suffix(input_dir: str, suffix_a: str, suffix_b: str, extensio
 
 
 def discover_pairs_subfolder(input_dir: str, subfolder_a: str, subfolder_b: str, extensions: set) -> list:
-    """Discover pairs in: {input_dir}/{subfolder_a}/{name}.ext and {input_dir}/{subfolder_b}/{name}.ext"""
-    dir_a = Path(input_dir) / subfolder_a
-    dir_b = Path(input_dir) / subfolder_b
+    dir_a = os.path.join(input_dir, subfolder_a)
+    dir_b = os.path.join(input_dir, subfolder_b)
 
     files_a = {}
-    if dir_a.is_dir():
-        for entry in dir_a.iterdir():
-            if entry.is_file() and entry.suffix.lower() in extensions:
-                files_a[entry.stem.lower()] = str(entry)
+    if os.path.isdir(dir_a):
+        for entry in os.scandir(dir_a):
+            if entry.is_file():
+                name = entry.name
+                dot = name.rfind(".")
+                if dot >= 0 and name[dot:].lower() in extensions:
+                    files_a[name[:dot].lower()] = entry.path
 
     pairs = []
-    if dir_b.is_dir():
-        for entry in sorted(dir_b.iterdir()):
-            if entry.is_file() and entry.suffix.lower() in extensions:
-                key = entry.stem.lower()
-                if key in files_a:
-                    pairs.append({"id": entry.stem, "A": files_a[key], "B": str(entry)})
+    if os.path.isdir(dir_b):
+        for entry in sorted(os.scandir(dir_b), key=lambda e: e.name):
+            if entry.is_file():
+                name = entry.name
+                dot = name.rfind(".")
+                if dot >= 0 and name[dot:].lower() in extensions:
+                    key = name[:dot].lower()
+                    if key in files_a:
+                        pairs.append({"id": name[:dot], "A": files_a[key], "B": entry.path})
     return pairs
 
 
@@ -178,35 +188,56 @@ def discover_pairs(cfg: dict) -> list:
 # ── Image Processing ────────────────────────────────────────────────────────
 
 
-def process_image(src_path: str, dst_path: str, cfg_pre: dict) -> bool:
-    """Load, validate, resize, and save a single image. Returns False if skipped."""
+def _process_single_image(src_path: str, dst_path: str, target_size, interp, fmt, jpeg_quality, min_dim, skip_corrupt):
+    """Process one image. Designed to be called in a worker process."""
     try:
-        img = Image.open(src_path).convert("RGB")
+        img = Image.open(src_path)
+        img.load()
+        img = img.convert("RGB")
     except Exception as e:
-        if cfg_pre.get("skip_corrupt", True):
-            print(f"  [SKIP] corrupt image: {src_path} ({e})")
-            return False
+        if skip_corrupt:
+            return False, f"corrupt: {e}"
         raise
 
     w, h = img.size
-    min_dim = cfg_pre.get("min_dimension", 0)
     if min(w, h) < min_dim:
-        print(f"  [SKIP] too small ({w}x{h} < {min_dim}): {src_path}")
-        return False
+        return False, f"too small ({w}x{h})"
 
-    target = cfg_pre.get("target_size")
-    if target:
-        interp = INTERPOLATION_MODES.get(cfg_pre.get("interpolation", "lanczos"), Image.LANCZOS)
-        img = img.resize((target, target), interp)
+    if target_size:
+        img = img.resize((target_size, target_size), interp)
 
-    fmt = cfg_pre.get("output_format", "png").lower()
-    if fmt == "jpg" or fmt == "jpeg":
-        quality = cfg_pre.get("jpeg_quality", 95)
-        img.save(dst_path, "JPEG", quality=quality)
+    if fmt in ("jpg", "jpeg"):
+        img.save(dst_path, "JPEG", quality=jpeg_quality)
     else:
         img.save(dst_path, "PNG")
 
-    return True
+    return True, None
+
+
+def _process_pair(pair, dir_a, dir_b, dir_bta, ext, target_size, interp, fmt, jpeg_quality, min_dim, skip_corrupt):
+    """Process a single pair (A + B + BtoA link). Called in worker process."""
+    name = pair["id"]
+    dst_a = os.path.join(dir_a, f"{name}{ext}")
+    dst_b = os.path.join(dir_b, f"{name}{ext}")
+    dst_bta = os.path.join(dir_bta, f"{name}{ext}")
+
+    ok_a, err_a = _process_single_image(pair["A"], dst_a, target_size, interp, fmt, jpeg_quality, min_dim, skip_corrupt)
+    if not ok_a:
+        return False, err_a
+
+    ok_b, err_b = _process_single_image(pair["B"], dst_b, target_size, interp, fmt, jpeg_quality, min_dim, skip_corrupt)
+    if not ok_b:
+        if os.path.exists(dst_a):
+            os.remove(dst_a)
+        return False, err_b
+
+    try:
+        os.link(dst_b, dst_bta)
+    except OSError:
+        import shutil
+        shutil.copy2(dst_b, dst_bta)
+
+    return True, None
 
 
 # ── Split & Write ───────────────────────────────────────────────────────────
@@ -231,8 +262,8 @@ def split_pairs(pairs: list, cfg: dict) -> dict:
     }
 
 
-def write_split(pairs: list, phase: str, output_dir: str, cfg_pre: dict) -> dict:
-    """Write one split (train/val/test) into FEGAN directory structure. Returns counts."""
+def write_split(pairs: list, phase: str, output_dir: str, cfg_pre: dict, num_workers: int) -> dict:
+    """Write one split using parallel workers."""
     fmt = cfg_pre.get("output_format", "png").lower()
     ext = ".jpg" if fmt in ("jpg", "jpeg") else ".png"
 
@@ -243,27 +274,54 @@ def write_split(pairs: list, phase: str, output_dir: str, cfg_pre: dict) -> dict
     os.makedirs(dir_b, exist_ok=True)
     os.makedirs(dir_bta, exist_ok=True)
 
+    target_size = cfg_pre.get("target_size")
+    interp = INTERPOLATION_MODES.get(cfg_pre.get("interpolation", "lanczos"), Image.LANCZOS)
+    jpeg_quality = cfg_pre.get("jpeg_quality", 95)
+    min_dim = cfg_pre.get("min_dimension", 0)
+    skip_corrupt = cfg_pre.get("skip_corrupt", True)
+
     written = 0
     skipped = 0
-    for pair in pairs:
-        name = pair["id"]
-        dst_a = os.path.join(dir_a, f"{name}{ext}")
-        dst_b = os.path.join(dir_b, f"{name}{ext}")
-        dst_bta = os.path.join(dir_bta, f"{name}{ext}")
+    total = len(pairs)
+    t0 = time.time()
+    last_print = 0
 
-        ok_a = process_image(pair["A"], dst_a, cfg_pre)
-        ok_b = process_image(pair["B"], dst_b, cfg_pre)
+    if num_workers <= 1:
+        for i, pair in enumerate(pairs):
+            ok, err = _process_pair(pair, dir_a, dir_b, dir_bta, ext,
+                                    target_size, interp, fmt, jpeg_quality,
+                                    min_dim, skip_corrupt)
+            if ok:
+                written += 1
+            else:
+                skipped += 1
+            done = written + skipped
+            if done - last_print >= 500 or done == total:
+                elapsed = time.time() - t0
+                rate = done / elapsed if elapsed > 0 else 0
+                print(f"    {done}/{total} pairs  ({rate:.0f} pairs/s)", flush=True)
+                last_print = done
+    else:
+        futures = {}
+        with ProcessPoolExecutor(max_workers=num_workers) as pool:
+            for pair in pairs:
+                fut = pool.submit(_process_pair, pair, dir_a, dir_b, dir_bta, ext,
+                                  target_size, interp, fmt, jpeg_quality,
+                                  min_dim, skip_corrupt)
+                futures[fut] = pair
 
-        if ok_a and ok_b:
-            # BtoA is a copy of B (the ground truth rectified image)
-            shutil.copy2(dst_b, dst_bta)
-            written += 1
-        else:
-            # Clean up partial writes
-            for p in (dst_a, dst_b, dst_bta):
-                if os.path.exists(p):
-                    os.remove(p)
-            skipped += 1
+            for fut in as_completed(futures):
+                ok, err = fut.result()
+                if ok:
+                    written += 1
+                else:
+                    skipped += 1
+                done = written + skipped
+                if done - last_print >= 500 or done == total:
+                    elapsed = time.time() - t0
+                    rate = done / elapsed if elapsed > 0 else 0
+                    print(f"    {done}/{total} pairs  ({rate:.0f} pairs/s)", flush=True)
+                    last_print = done
 
     return {"written": written, "skipped": skipped}
 
@@ -403,6 +461,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, help="Override split.seed")
 
     p.add_argument("--max_pairs", type=int, help="Limit total pairs (useful for quick test runs)")
+    p.add_argument("--workers", type=int, default=None,
+                    help="Number of parallel workers (default: CPU count)")
 
     g = p.add_argument_group("FEGAN hyperparameter overrides")
     g.add_argument("--fineSize", type=int, help="FEGAN crop size")
@@ -427,18 +487,26 @@ def main():
     input_dir = cfg["source"]["input_dir"]
     output_dir = cfg["output"]["output_dir"]
 
+    num_workers = args.workers
+    if num_workers is None:
+        num_workers = min(os.cpu_count() or 1, 8)
+
     print(f"Source directory : {input_dir}")
     print(f"Output directory : {output_dir}")
     print(f"Naming convention: {cfg['source']['naming']}")
+    print(f"Workers          : {num_workers}")
     print()
 
     if not os.path.isdir(input_dir):
         print(f"Error: input directory does not exist: {input_dir}")
         sys.exit(1)
 
+    t_start = time.time()
+
     print("Discovering image pairs...")
+    t0 = time.time()
     pairs = discover_pairs(cfg)
-    print(f"  Found {len(pairs)} valid pairs")
+    print(f"  Found {len(pairs)} valid pairs ({time.time() - t0:.1f}s)")
 
     if args.max_pairs and len(pairs) > args.max_pairs:
         rng = np.random.RandomState(cfg["split"].get("seed", 42))
@@ -471,13 +539,16 @@ def main():
         if not phase_pairs:
             continue
         print(f"Processing {phase} split ({len(phase_pairs)} pairs)...")
-        stats = write_split(phase_pairs, phase, output_dir, cfg_pre)
+        t0 = time.time()
+        stats = write_split(phase_pairs, phase, output_dir, cfg_pre, num_workers)
+        elapsed = time.time() - t0
         total_written += stats["written"]
         total_skipped += stats["skipped"]
-        print(f"  Written: {stats['written']}, Skipped: {stats['skipped']}")
+        print(f"  Written: {stats['written']}, Skipped: {stats['skipped']} ({elapsed:.1f}s)")
 
+    total_time = time.time() - t_start
     print()
-    print(f"Total: {total_written} pairs written, {total_skipped} skipped")
+    print(f"Total: {total_written} pairs written, {total_skipped} skipped ({total_time:.1f}s)")
 
     train_script = generate_train_script(output_dir, cfg)
     test_script = generate_test_script(output_dir, cfg)
@@ -485,7 +556,6 @@ def main():
     print(f"Generated training script : {train_script}")
     print(f"Generated inference script: {test_script}")
 
-    # Save the resolved config alongside the dataset for reproducibility
     resolved_path = os.path.join(output_dir, "resolved_config.yaml")
     with open(resolved_path, "w") as f:
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
