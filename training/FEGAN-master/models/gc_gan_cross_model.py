@@ -39,8 +39,8 @@ class GcGANCrossModel(BaseModel):
         self.netG_gc_AB = self.netG_AB # share G_gc and G
 
         
-        self.true = torch.ones((nb, 1)).to(self.device)
-        self.false = torch.zeros((nb, 1)).to(self.device)
+        self._ones_cache = {}
+        self._zeros_cache = {}
         
         # read chessboard
         img_path = os.path.join('./util/chessboard.jpg')
@@ -100,6 +100,18 @@ class GcGANCrossModel(BaseModel):
             networks.print_network(self.netD_gc_B)
         print('-----------------------------------------------')
 
+    def _target_ones(self, like_tensor):
+        n = like_tensor.shape[0]
+        if n not in self._ones_cache:
+            self._ones_cache[n] = torch.ones((n, 1), device=self.device)
+        return self._ones_cache[n]
+
+    def _target_zeros(self, like_tensor):
+        n = like_tensor.shape[0]
+        if n not in self._zeros_cache:
+            self._zeros_cache[n] = torch.zeros((n, 1), device=self.device)
+        return self._zeros_cache[n]
+
     def set_input(self, input):
         AtoB = self.opt.which_direction == 'AtoB'
         input_A = input['A' if AtoB else 'B']
@@ -118,18 +130,17 @@ class GcGANCrossModel(BaseModel):
         # Real_clean
         pred_real, pred_distort = self.forward_D_basic(netD, real)
         loss_D_real += self.criterionGAN(pred_real, True)
-        loss_D_distort += self.criterionBCE(pred_distort, self.false)
+        loss_D_distort += self.criterionBCE(pred_distort, self._target_zeros(pred_distort))
 
         # Real_distort
         pred_real, pred_distort = self.forward_D_basic(netD, real2)
         # loss_D_real += self.criterionGAN(pred_real, True)
-        loss_D_distort += self.criterionBCE(pred_distort, self.true)
+        loss_D_distort += self.criterionBCE(pred_distort, self._target_ones(pred_distort))
 
         # Fake_clean
         pred_real, pred_distort = self.forward_D_basic(netD, fake)
         loss_D_real += self.criterionGAN(pred_real, False)
-        # loss_D_distort += self.criterionBCE(pred_distort, self.false)
-        loss_D_distort += self.criterionBCE(pred_distort, self.true) # adversarial
+        loss_D_distort += self.criterionBCE(pred_distort, self._target_ones(pred_distort)) # adversarial
 
         loss_D = loss_D_real + loss_D_distort
         loss_D.backward()
@@ -255,11 +266,11 @@ class GcGANCrossModel(BaseModel):
     def backward_G(self):
         fake_B, flow_A = self.forward_G_basic(self.netG_AB, self.real_A)
         pred_real, pred_distort = self.forward_D_basic(self.netD_B, fake_B)
-        loss_G_AB = ( self.criterionGAN(pred_real, True) + self.criterionBCE(pred_distort, self.false) )*self.opt.lambda_G
+        loss_G_AB = ( self.criterionGAN(pred_real, True) + self.criterionBCE(pred_distort, self._target_zeros(pred_distort)) )*self.opt.lambda_G
 
         fake_gc_B, flow_gc_A = self.forward_G_basic(self.netG_gc_AB, self.real_gc_A)
         pred_real, pred_distort = self.forward_D_basic(self.netD_gc_B, fake_gc_B)
-        loss_G_gc_AB = ( self.criterionGAN(pred_real, True) + self.criterionBCE(pred_distort, self.false) )*self.opt.lambda_G
+        loss_G_gc_AB = ( self.criterionGAN(pred_real, True) + self.criterionBCE(pred_distort, self._target_zeros(pred_distort)) )*self.opt.lambda_G
 
         # Constraints for flow map
         loss_crossflow = self.criterionCrossFlow(flow_A, flow_gc_A)*self.opt.lambda_crossflow
