@@ -1,0 +1,13 @@
+torch>=2.2.0
+torchvision>=0.17.0
+numpy>=1.26.0
+matplotlib>=3.8.0
+Pillow>=10.0.0
+opencv-python>=4.9.0
+scikit-image>=0.22.0
+sewar>=0.4.6
+visdom>=0.2.4
+dominate>=2.9.0
+beautifulsoup4>=4.12.0
+requests>=2.31.0
+tensorboard>=2.15.0

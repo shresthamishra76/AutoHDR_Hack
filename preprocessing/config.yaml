@@ -1,0 +1,106 @@
+# ============================================================
+# FEGAN Preprocessing Pipeline Configuration
+# ============================================================
+# All hyperparameters for data preprocessing and FEGAN training
+# can be tuned here. The preprocessing script reads this file
+# and organizes raw image pairs into the FEGAN directory structure.
+
+# --- Data Source ---
+source:
+  # Directory containing raw image pairs
+  input_dir: "./data"  # path to raw image pairs (override with --input_dir on CLI)
+
+  # Naming convention for paired images.
+  # "uuid_camera" expects: {uuid}_{camera}_original.{ext} / {uuid}_{camera}_generated.{ext}
+  # "suffix"      expects: {name}_A.{ext} / {name}_B.{ext}  (configurable suffixes below)
+  # "subfolder"   expects: original/{name}.{ext} / generated/{name}.{ext}
+  naming: "uuid_camera"
+
+  # For "suffix" naming mode only
+  suffix_a: "_original"
+  suffix_b: "_generated"
+
+  # For "subfolder" naming mode only
+  subfolder_a: "original"
+  subfolder_b: "generated"
+
+  # Allowed image extensions (case-insensitive)
+  extensions: [".jpg", ".jpeg", ".png", ".bmp", ".tiff"]
+
+# --- Output ---
+output:
+  # Root directory for the FEGAN-formatted dataset
+  output_dir: "./datasets/fisheye"
+
+# --- Train / Val / Test Split ---
+split:
+  train: 0.9
+  val: 0.1
+  # Random seed for reproducible splits
+  seed: 42
+
+# --- Image Preprocessing ---
+preprocessing:
+  # Target image size before FEGAN's own resize/crop pipeline.
+  # Set to null to skip pre-resizing (let FEGAN handle it).
+  # Recommended: set slightly larger than FEGAN's loadSize (288)
+  # so FEGAN's random crop adds useful augmentation.
+  target_size: 320
+
+  # Interpolation for resizing: "bilinear", "bicubic", "lanczos", "nearest"
+  interpolation: "lanczos"
+
+  # Output image format: "png" (lossless) or "jpg"
+  output_format: "png"
+
+  # JPEG quality (1-100), only used when output_format is "jpg"
+  jpeg_quality: 95
+
+  # Minimum source image dimension (width or height).
+  # Images smaller than this are skipped.
+  min_dimension: 128
+
+  # If true, skip corrupted or unreadable images instead of crashing.
+  skip_corrupt: true
+
+# --- FEGAN Training Hyperparameters ---
+# These are written to a generated launch script for convenience.
+# They map directly to FEGAN command-line arguments.
+fegan:
+  model: "gc_gan_cross"
+  which_model_netG: "unet_128"
+  which_model_netD: "Fusion"
+  which_direction: "BtoA"
+  batchSize: 4
+  loadSize: 288
+  fineSize: 256
+  input_nc: 3
+  output_nc: 3
+  ngf: 64
+  ndf: 64
+  niter: 200
+  niter_decay: 0
+  lr: 0.0002
+  beta1: 0.5
+  lr_policy: "lambda"
+  save_epoch_freq: 2
+  use_att: true
+  upsample_flow: 2
+  identity: 0
+  no_dropout: false
+  no_flip: false
+
+  # Loss weights -- tune these to control training behavior
+  lambda_G: 1.0
+  lambda_gc: 1.0
+  lambda_AB: 10.0
+  lambda_smooth: 2.0
+  lambda_crossflow: 2.0
+  lambda_radial: 0.5
+  lambda_rot: 0.1
+
+  # GPU configuration: "0" for single GPU, "0,1" for multi, "-1" for CPU
+  gpu_ids: "0"
+
+  # Experiment name (checkpoints saved under this name)
+  name: "fisheye_rectification"

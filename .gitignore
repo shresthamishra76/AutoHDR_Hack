@@ -1,0 +1,12 @@
+
+# checkpoints / model weights
+results/fisheye_rectification/checkpoints/
+*.pth
+
+# model checkpoints
+results/fisheye_rectification/checkpoints/
+*.pth
+
+# ignore model checkpoints
+results/fisheye_rectification/checkpoints/
+*.pth
