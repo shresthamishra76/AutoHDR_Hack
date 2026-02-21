@@ -8,7 +8,7 @@
 # --- Data Source ---
 source:
   # Directory containing raw image pairs
-  input_dir: "./data"  # path to raw image pairs (override with --input_dir on CLI)
+  input_dir: "/kaggle/input/automatic-lens-correction/lens-correction-train-cleaned"
 
   # Naming convention for paired images.
   # "uuid_camera" expects: {uuid}_{camera}_original.{ext} / {uuid}_{camera}_generated.{ext}
@@ -30,7 +30,7 @@ source:
 # --- Output ---
 output:
   # Root directory for the FEGAN-formatted dataset
-  output_dir: "./datasets/fisheye"
+  output_dir: "/kaggle/working/datasets/fisheye"
 
 # --- Train / Val / Test Split ---
 split:
