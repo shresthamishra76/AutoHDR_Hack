@@ -41,8 +41,8 @@ import os
 # !unzip -q /content/kaggle_data/*.zip -d /content/kaggle_data
 
 # Option B: If dataset is already in a known path
-INPUT_DIR = "/content/kaggle_data/lens-correction-train-cleaned"   # <-- ADJUST THIS
-TEST_DIR  = "/content/kaggle_data/test-originals"                  # <-- ADJUST THIS
+INPUT_DIR = "/content/lens-correction-train-cleaned"   # <-- ADJUST THIS
+TEST_DIR  = "/content/test-originals"                  # <-- ADJUST THIS
 OUTPUT_DIR = "/content/datasets/fisheye"
 
 assert os.path.isdir(INPUT_DIR), f"Input dir not found: {INPUT_DIR}"
@@ -141,10 +141,10 @@ print("Dataset verified.")
     --fineSize 256 \
     \
     `# ── Training Schedule ──` \
-    --niter 200 \
+    --niter 20 \
     --niter_decay 0 \
     --epoch_count 1 \
-    --batchSize 4 \
+    --batchSize 64 \
     \
     `# ── Optimizer ──` \
     --lr 0.0002 \
@@ -179,7 +179,7 @@ print("Dataset verified.")
     --resize_or_crop resize_and_crop \
     \
     `# ── Saving & Logging ──` \
-    --save_epoch_freq 2 \
+    --save_epoch_freq 1 \
     --save_latest_freq 5000 \
     --print_freq 10 \
     --display_freq 10 \
@@ -211,18 +211,18 @@ print("Dataset verified.")
 #     --ngf 64 --ndf 64 --input_nc 3 --output_nc 3 \
 #     --norm instance --init_type xavier --use_att --upsample_flow 2 \
 #     --loadSize 288 --fineSize 256 \
-#     --niter 200 --niter_decay 0 \
-#     --batchSize 4 --lr 0.0002 --beta1 0.5 --lr_policy lambda \
+#     --niter 20 --niter_decay 0 \
+#     --batchSize 64 --lr 0.0002 --beta1 0.5 --lr_policy lambda \
 #     --lambda_G 1.0 --lambda_gc 1.0 --lambda_AB 10.0 \
 #     --lambda_smooth 2.0 --lambda_crossflow 2.0 \
 #     --lambda_radial 0.5 --lambda_rot 0.1 --identity 0 \
 #     --lambda_metric 0.0 \
 #     --w_edge 0.40 --w_line 0.22 --w_grad 0.18 --w_ssim 0.15 --w_pixel 0.05 \
-#     --save_epoch_freq 2 --print_freq 10 --nThreads 2 \
+#     --save_epoch_freq 1 --print_freq 10 --nThreads 2 \
 #     --gpu_ids 0 --tensorboard \
 #     --continue_train \
 #     --which_epoch latest \
-#     --epoch_count 50           # <-- set to epoch where training stopped
+#     --epoch_count 10           # <-- set to epoch where training stopped
 
 # ============================================================
 # CELL 5: Copy checkpoints to Google Drive (backup)
@@ -241,9 +241,9 @@ print("Dataset verified.")
 
 | Flag | Default | What it controls | Try |
 |------|---------|-----------------|-----|
-| `--batchSize` | 4 | Batch size. Colab T4 = 4-8, A100 = 8-16 | 8 on T4 if no OOM |
+| `--batchSize` | 64 | Batch size. H100 = 32-64, T4 = 4-8 | 32 if OOM on H100 |
 | `--lr` | 0.0002 | Adam learning rate | 1e-4 for finer convergence |
-| `--niter` | 200 | Epochs at constant LR | 100 for quick test |
+| `--niter` | 20 | Epochs at constant LR | 10 for quick test |
 | `--niter_decay` | 0 | Epochs to linearly decay LR to 0 | 50 for gradual cooldown |
 | `--lambda_AB` | 10.0 | Reconstruction weight (dominant loss) | 5.0-20.0 |
 | `--lambda_smooth` | 2.0 | Flow smoothness (reduces artifacts) | 1.0-5.0 |
@@ -267,48 +267,48 @@ Train in phases to get stable GAN convergence first, then align with competition
 # Ensure CWD is FEGAN-master (already set by Cell 2 above, but safe to repeat)
 %cd {FEGAN_ROOT}
 
-# Phase 1 (epochs 1-50): GAN + geometry only
+# Phase 1 (epochs 1-5): GAN + geometry only
 !python train.py \
     --dataroot "{DATAROOT}" --name "{EXP_NAME}" --results_root "{RESULTS_DIR}" \
     --model gc_gan_cross --which_model_netG unet_128 --which_model_netD Fusion \
     --which_direction BtoA --ngf 64 --ndf 64 --input_nc 3 --output_nc 3 \
     --norm instance --init_type xavier --use_att --upsample_flow 2 \
-    --loadSize 288 --fineSize 256 --niter 50 --niter_decay 0 --batchSize 4 \
+    --loadSize 288 --fineSize 256 --niter 5 --niter_decay 0 --batchSize 64 \
     --lr 0.0002 --beta1 0.5 --lr_policy lambda \
     --lambda_G 1.0 --lambda_gc 1.0 --lambda_AB 10.0 \
     --lambda_smooth 2.0 --lambda_crossflow 2.0 --lambda_radial 0.5 --lambda_rot 0.1 \
     --identity 0 --lambda_metric 0.0 \
-    --save_epoch_freq 5 --print_freq 10 --nThreads 2 --gpu_ids 0 --tensorboard
+    --save_epoch_freq 1 --print_freq 10 --nThreads 2 --gpu_ids 0 --tensorboard
 
-# Phase 2 (epochs 51-150): introduce metric loss
+# Phase 2 (epochs 6-15): introduce metric loss
 !python train.py \
     --dataroot "{DATAROOT}" --name "{EXP_NAME}" --results_root "{RESULTS_DIR}" \
     --model gc_gan_cross --which_model_netG unet_128 --which_model_netD Fusion \
     --which_direction BtoA --ngf 64 --ndf 64 --input_nc 3 --output_nc 3 \
     --norm instance --init_type xavier --use_att --upsample_flow 2 \
-    --loadSize 288 --fineSize 256 --niter 150 --niter_decay 0 --batchSize 4 \
+    --loadSize 288 --fineSize 256 --niter 15 --niter_decay 0 --batchSize 4 \
     --lr 0.0002 --beta1 0.5 --lr_policy lambda \
     --lambda_G 1.0 --lambda_gc 1.0 --lambda_AB 10.0 \
     --lambda_smooth 2.0 --lambda_crossflow 2.0 --lambda_radial 0.5 --lambda_rot 0.1 \
     --identity 0 --lambda_metric 1.0 \
     --w_edge 0.40 --w_line 0.22 --w_grad 0.18 --w_ssim 0.15 --w_pixel 0.05 \
-    --save_epoch_freq 5 --print_freq 10 --nThreads 2 --gpu_ids 0 --tensorboard \
-    --continue_train --which_epoch latest --epoch_count 51
+    --save_epoch_freq 1 --print_freq 10 --nThreads 2 --gpu_ids 0 --tensorboard \
+    --continue_train --which_epoch latest --epoch_count 6
 
-# Phase 3 (epochs 151-200): metric-focused fine-tuning
+# Phase 3 (epochs 16-20): metric-focused fine-tuning
 !python train.py \
     --dataroot "{DATAROOT}" --name "{EXP_NAME}" --results_root "{RESULTS_DIR}" \
     --model gc_gan_cross --which_model_netG unet_128 --which_model_netD Fusion \
     --which_direction BtoA --ngf 64 --ndf 64 --input_nc 3 --output_nc 3 \
     --norm instance --init_type xavier --use_att --upsample_flow 2 \
-    --loadSize 288 --fineSize 256 --niter 200 --niter_decay 0 --batchSize 4 \
+    --loadSize 288 --fineSize 256 --niter 20 --niter_decay 0 --batchSize 4 \
     --lr 0.0001 --beta1 0.5 --lr_policy lambda \
     --lambda_G 1.0 --lambda_gc 1.0 --lambda_AB 10.0 \
     --lambda_smooth 2.0 --lambda_crossflow 2.0 --lambda_radial 0.5 --lambda_rot 0.1 \
     --identity 0 --lambda_metric 2.0 \
     --w_edge 0.40 --w_line 0.22 --w_grad 0.18 --w_ssim 0.15 --w_pixel 0.05 \
-    --save_epoch_freq 5 --print_freq 10 --nThreads 2 --gpu_ids 0 --tensorboard \
-    --continue_train --which_epoch latest --epoch_count 151
+    --save_epoch_freq 1 --print_freq 10 --nThreads 2 --gpu_ids 0 --tensorboard \
+    --continue_train --which_epoch latest --epoch_count 16
 ```
 
 ---
@@ -443,7 +443,7 @@ For a fast end-to-end run (e.g., debugging with a small subset):
     --model gc_gan_cross --which_model_netG unet_128 --which_model_netD Fusion \
     --which_direction BtoA --ngf 64 --ndf 64 --input_nc 3 --output_nc 3 \
     --norm instance --init_type xavier --use_att --upsample_flow 2 \
-    --loadSize 288 --fineSize 256 --niter 5 --niter_decay 0 --batchSize 4 \
+    --loadSize 288 --fineSize 256 --niter 5 --niter_decay 0 --batchSize 64 \
     --lr 0.0002 --beta1 0.5 --lr_policy lambda \
     --lambda_G 1.0 --lambda_gc 1.0 --lambda_AB 10.0 \
     --lambda_smooth 2.0 --lambda_crossflow 2.0 --lambda_radial 0.5 --lambda_rot 0.1 \
@@ -467,7 +467,7 @@ files.download("/content/submission.zip")
 
 ## Notes
 
-- **GPU**: Colab free tier gives a T4 (16GB VRAM). `batchSize 4` at 256x256 is safe. Try 8 if no OOM.
+- **GPU**: H100 (80GB VRAM) handles `batchSize 64` at 256x256 easily. Drop to 32 if OOM. For T4 (16GB), use 4-8.
 - **Runtime disconnects**: Use `--continue_train --which_epoch latest --epoch_count N` to resume.
 - **Checkpoints**: Saved every `save_epoch_freq` epochs and every `save_latest_freq` iterations. Back up to Drive.
 - **submit.py flags must match training**: `--ngf`, `--which_model`, `--use_att`, `--upsample_flow` must be identical to what was used during training, or the checkpoint won't load.
