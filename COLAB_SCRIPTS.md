@@ -274,48 +274,48 @@ Train in phases to get stable GAN convergence first, then align with competition
 # Ensure CWD is FEGAN-master (already set by Cell 2 above, but safe to repeat)
 %cd {FEGAN_ROOT}
 
-# Phase 1 (epoch 1): GAN + geometry only
+# Phase 1 (epochs 1-8): GAN + geometry only
 !python train.py \
     --dataroot "{DATAROOT}" --name "{EXP_NAME}" --results_root "{RESULTS_DIR}" \
     --model gc_gan_cross --which_model_netG unet_128 --which_model_netD Fusion \
     --which_direction BtoA --ngf 64 --ndf 64 --input_nc 3 --output_nc 3 \
     --norm instance --init_type xavier --use_att --upsample_flow 2 \
-    --loadSize 288 --fineSize 256 --niter 1 --niter_decay 0 --batchSize 64 \
+    --loadSize 288 --fineSize 256 --niter 8 --niter_decay 0 --batchSize 64 \
     --lr 0.0002 --beta1 0.5 --lr_policy lambda \
     --lambda_G 1.0 --lambda_gc 1.0 --lambda_AB 10.0 \
     --lambda_smooth 2.0 --lambda_crossflow 2.0 --lambda_radial 0.5 --lambda_rot 0.1 \
     --identity 0 --lambda_metric 0.0 \
     --save_epoch_freq 1 --print_freq 10 --nThreads 2 --gpu_ids 0 --tensorboard
 
-# Phase 2 (epoch 2): introduce metric loss
+# Phase 2 (epochs 9-18): introduce metric loss
 !python train.py \
     --dataroot "{DATAROOT}" --name "{EXP_NAME}" --results_root "{RESULTS_DIR}" \
     --model gc_gan_cross --which_model_netG unet_128 --which_model_netD Fusion \
     --which_direction BtoA --ngf 64 --ndf 64 --input_nc 3 --output_nc 3 \
     --norm instance --init_type xavier --use_att --upsample_flow 2 \
-    --loadSize 288 --fineSize 256 --niter 2 --niter_decay 0 --batchSize 64 \
+    --loadSize 288 --fineSize 256 --niter 18 --niter_decay 0 --batchSize 64 \
     --lr 0.0002 --beta1 0.5 --lr_policy lambda \
     --lambda_G 1.0 --lambda_gc 1.0 --lambda_AB 10.0 \
     --lambda_smooth 2.0 --lambda_crossflow 2.0 --lambda_radial 0.5 --lambda_rot 0.1 \
     --identity 0 --lambda_metric 1.0 \
     --w_edge 0.40 --w_line 0.22 --w_grad 0.18 --w_ssim 0.15 --w_pixel 0.05 \
     --save_epoch_freq 1 --print_freq 10 --nThreads 2 --gpu_ids 0 --tensorboard \
-    --continue_train --which_epoch 1 --epoch_count 2
+    --continue_train --which_epoch 8 --epoch_count 9
 
-# Phase 3 (epoch 3): metric-focused fine-tuning
+# Phase 3 (epochs 19-25): metric-focused fine-tuning
 !python train.py \
     --dataroot "{DATAROOT}" --name "{EXP_NAME}" --results_root "{RESULTS_DIR}" \
     --model gc_gan_cross --which_model_netG unet_128 --which_model_netD Fusion \
     --which_direction BtoA --ngf 64 --ndf 64 --input_nc 3 --output_nc 3 \
     --norm instance --init_type xavier --use_att --upsample_flow 2 \
-    --loadSize 288 --fineSize 256 --niter 3 --niter_decay 0 --batchSize 64 \
+    --loadSize 288 --fineSize 256 --niter 25 --niter_decay 0 --batchSize 64 \
     --lr 0.0001 --beta1 0.5 --lr_policy lambda \
     --lambda_G 1.0 --lambda_gc 1.0 --lambda_AB 10.0 \
     --lambda_smooth 2.0 --lambda_crossflow 2.0 --lambda_radial 0.5 --lambda_rot 0.1 \
     --identity 0 --lambda_metric 2.0 \
     --w_edge 0.40 --w_line 0.22 --w_grad 0.18 --w_ssim 0.15 --w_pixel 0.05 \
     --save_epoch_freq 1 --print_freq 10 --nThreads 2 --gpu_ids 0 --tensorboard \
-    --continue_train --which_epoch 2 --epoch_count 3
+    --continue_train --which_epoch 18 --epoch_count 19
 ```
 
 ---

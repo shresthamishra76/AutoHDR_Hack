@@ -52,10 +52,9 @@ def load_generator(checkpoint_path, ngf=64, which_model="unet_128", use_att=Fals
     return netG, device
 
 
-def load_image(path, size=256):
+def load_image(path):
     img = Image.open(path).convert("RGB")
     transform = transforms.Compose([
-        transforms.Resize((size, size), Image.BICUBIC),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
@@ -97,7 +96,7 @@ def main():
     parser.add_argument("--gt_dir", default=None, help="Folder of ground truth images (optional)")
     parser.add_argument("--name", default="inference", help="Experiment name (results saved to results/{name}/)")
     parser.add_argument("--results_root", default="./results", help="Root results directory")
-    parser.add_argument("--size", type=int, default=256, help="Image size for inference")
+    parser.add_argument("--size", type=int, default=None, help="(deprecated, images are no longer resized)")
     parser.add_argument("--ngf", type=int, default=64, help="Generator filter count (must match training)")
     parser.add_argument("--which_model", default="unet_128", help="Generator architecture (must match training)")
     parser.add_argument("--use_att", action="store_true", help="Use attention (must match training)")
@@ -132,7 +131,7 @@ def main():
             gt_images[p.stem.lower()] = p
 
     for i, img_path in enumerate(images):
-        image_tensor = load_image(str(img_path), size=args.size)
+        image_tensor = load_image(str(img_path))
         output_tensor = run_inference(netG, image_tensor, device, upsample_flow=args.upsample_flow)
 
         out_name = img_path.stem + ".png"
@@ -150,7 +149,6 @@ def main():
             gt_key = img_path.stem.lower()
             if gt_key in gt_images:
                 gt_img = Image.open(str(gt_images[gt_key])).convert("RGB")
-                gt_img = gt_img.resize((args.size, args.size), Image.BICUBIC)
                 gt_img.save(os.path.join(gt_out, out_name))
 
         print(f"  [{i+1}/{len(images)}] {img_path.name} -> {out_name}")

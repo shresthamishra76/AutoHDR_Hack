@@ -156,8 +156,8 @@ def main():
                         help="Directory to write corrected images")
     parser.add_argument("--zip_path", default="./submission.zip",
                         help="Path for the output zip file")
-    parser.add_argument("--size", type=int, default=256,
-                        help="Image size for inference")
+    parser.add_argument("--size", type=int, default=None,
+                        help="(deprecated, images are no longer resized)")
     parser.add_argument("--ngf", type=int, default=64,
                         help="Generator filter count (must match training)")
     parser.add_argument("--which_model", default="unet_128",
@@ -170,9 +170,8 @@ def main():
                         help="GPU ids (0 for GPU, -1 for CPU)")
     parser.add_argument("--jpeg_quality", type=int, default=95,
                         help="JPEG quality for output images")
-    parser.add_argument("--upsampler", type=str, default="bicubic",
-                        choices=["bicubic", "realesrgan"],
-                        help="Upsampling method for final resize (default: bicubic)")
+    parser.add_argument("--upsampler", type=str, default=None,
+                        help="(deprecated, images are no longer resized)")
     args = parser.parse_args()
 
     gpu_ids = [int(x) for x in args.gpu_ids.split(",") if int(x) >= 0]
@@ -186,7 +185,6 @@ def main():
     )
 
     transform = transforms.Compose([
-        transforms.Resize((args.size, args.size), Image.BICUBIC),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
@@ -196,13 +194,11 @@ def main():
         if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
     ])
     print(f"Found {len(test_images)} test images in {args.test_dir}")
-    print(f"Upsampler: {args.upsampler}")
 
     output_paths = []
     total_warnings = 0
     for i, img_path in enumerate(test_images):
         img = Image.open(str(img_path)).convert("RGB")
-        original_size = img.size  # (W, H)
 
         tensor_in = transform(img).unsqueeze(0)
         tensor_out = rectify_image(netG, tensor_in, device,
@@ -212,17 +208,7 @@ def main():
         arr = np.transpose(arr, (1, 2, 0))
         arr = ((arr + 1.0) / 2.0 * 255.0).clip(0, 255).astype(np.uint8)
 
-        # Upsample to original size
-        if args.upsampler == "realesrgan":
-            # Real-ESRGAN expects BGR
-            arr_bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-            arr_bgr = upsample_realesrgan(arr_bgr, device=str(device))
-            arr_up = cv2.cvtColor(arr_bgr, cv2.COLOR_BGR2RGB)
-            result = Image.fromarray(arr_up)
-            result = result.resize(original_size, Image.LANCZOS)
-        else:
-            result = Image.fromarray(arr)
-            result = result.resize(original_size, Image.BICUBIC)
+        result = Image.fromarray(arr)
 
         # Quality check for catastrophic artifacts
         result_arr = np.array(result)
