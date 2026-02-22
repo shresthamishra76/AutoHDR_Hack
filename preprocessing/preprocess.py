@@ -231,6 +231,8 @@ def _process_pair(pair, dir_a, dir_b, dir_bta, ext, target_size, interp, fmt, jp
             os.remove(dst_a)
         return False, err_b
 
+    if os.path.exists(dst_bta):
+        os.remove(dst_bta)
     try:
         os.link(dst_b, dst_bta)
     except OSError:

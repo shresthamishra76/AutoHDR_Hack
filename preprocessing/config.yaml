@@ -45,7 +45,7 @@ preprocessing:
   # Set to null to skip pre-resizing (let FEGAN handle it).
   # Recommended: set slightly larger than FEGAN's loadSize (288)
   # so FEGAN's random crop adds useful augmentation.
-  target_size: 320
+  target_size: null
 
   # Interpolation for resizing: "bilinear", "bicubic", "lanczos", "nearest"
   interpolation: "lanczos"

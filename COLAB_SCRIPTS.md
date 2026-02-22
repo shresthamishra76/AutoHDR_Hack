@@ -60,7 +60,6 @@ print(f"Using {NUM_WORKERS} workers")
     --config preprocessing/config.yaml \
     --input_dir "{INPUT_DIR}" \
     --output_dir "{OUTPUT_DIR}" \
-    --target_size 320 \
     --output_format png \
     --train_split 0.9 \
     --val_split 0.1 \
@@ -80,7 +79,7 @@ for split in ["trainA", "trainB", "trainBtoA", "valA", "valB", "valBtoA"]:
 #     --config preprocessing/config.yaml \
 #     --input_dir "{INPUT_DIR}" \
 #     --output_dir "/content/datasets/fisheye_small" \
-#     --target_size 320 \
+#     \
 #     --max_pairs 100 \
 #     --workers {NUM_WORKERS}
 ```
@@ -356,14 +355,12 @@ print(f"Val images: {len(os.listdir(VAL_INPUT))} in {VAL_INPUT}")
     --test_dir "{VAL_INPUT}" \
     --output_dir "{VAL_OUTPUT}" \
     --zip_path "/content/_val_dummy.zip" \
-    --size 256 \
     --ngf 64 \
     --which_model unet_128 \
     --use_att \
     --upsample_flow 2.0 \
     --gpu_ids 0 \
-    --jpeg_quality 95 \
-    --upsampler bicubic
+    --jpeg_quality 95
 
 print(f"Predictions: {len(os.listdir(VAL_OUTPUT))} files in {VAL_OUTPUT}")
 
@@ -479,15 +476,12 @@ print(f"Test images: {len(os.listdir(TEST_DIR))} files in {TEST_DIR}")
     --test_dir "{TEST_DIR}" \
     --output_dir "{SUBMISSION_DIR}" \
     --zip_path "{ZIP_PATH}" \
-    --size 256 \
     --ngf 64 \
     --which_model unet_128 \
     --use_att \
     --upsample_flow 2.0 \
     --gpu_ids 0 \
-    --jpeg_quality 95 \
-    --upsampler bicubic
-# For better upscaling, use: --upsampler realesrgan (requires: pip install realesrgan basicsr)
+    --jpeg_quality 95
 
 # ============================================================
 # CELL 3: Verify submission
@@ -533,9 +527,8 @@ files.download(ZIP_PATH)
 #     --test_dir "{TEST_DIR}" \
 #     --output_dir "/content/submission_epoch{EPOCH}" \
 #     --zip_path "/content/submission_epoch{EPOCH}.zip" \
-#     --size 256 --ngf 64 --which_model unet_128 \
-#     --use_att --upsample_flow 2.0 --gpu_ids 0 --jpeg_quality 95 \
-#     --upsampler bicubic
+#     --ngf 64 --which_model unet_128 \
+#     --use_att --upsample_flow 2.0 --gpu_ids 0 --jpeg_quality 95
 ```
 
 ---
@@ -556,7 +549,7 @@ For a fast end-to-end run (e.g., debugging with a small subset):
     --config /content/AutoHDR_Hack/preprocessing/config.yaml \
     --input_dir "/content/kaggle_data/lens-correction-train-cleaned" \
     --output_dir "/content/datasets/fisheye" \
-    --target_size 320 --max_pairs 200 --workers 2
+    --max_pairs 200 --workers 2
 
 # Train (short run)
 %cd /content/AutoHDR_Hack/training/FEGAN-master
@@ -579,8 +572,8 @@ For a fast end-to-end run (e.g., debugging with a small subset):
     --checkpoint /content/results/quick_test/checkpoints/latest_net_G_AB.pth \
     --test_dir "/content/kaggle_data/test-originals" \
     --output_dir /content/submission --zip_path /content/submission.zip \
-    --size 256 --ngf 64 --which_model unet_128 --use_att --upsample_flow 2.0 \
-    --gpu_ids 0 --jpeg_quality 95 --upsampler bicubic
+    --ngf 64 --which_model unet_128 --use_att --upsample_flow 2.0 \
+    --gpu_ids 0 --jpeg_quality 95
 
 from google.colab import files
 files.download("/content/submission.zip")
