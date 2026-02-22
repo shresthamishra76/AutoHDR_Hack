@@ -141,7 +141,7 @@ print("Dataset verified.")
     --fineSize 256 \
     \
     `# ── Training Schedule ──` \
-    --niter 20 \
+    --niter 1 \
     --niter_decay 0 \
     --epoch_count 1 \
     --batchSize 64 \
@@ -230,11 +230,18 @@ print("Dataset verified.")
 # !cp -r {RESULTS_DIR}/{EXP_NAME}/checkpoints /content/drive/MyDrive/fegan_checkpoints/
 
 # ============================================================
-# CELL 6: Evaluate model on validation set
+# CELL 6: Verify training completed (check saved checkpoints)
 # ============================================================
-%cd {REPO_ROOT}
-
-!python evaluate.py --results_dir "{RESULTS_DIR}/{EXP_NAME}"
+import os
+ckpt_dir = f"{RESULTS_DIR}/{EXP_NAME}/checkpoints"
+if os.path.isdir(ckpt_dir):
+    ckpts = sorted(os.listdir(ckpt_dir))
+    print(f"Checkpoints in {ckpt_dir}:")
+    for c in ckpts:
+        size_mb = os.path.getsize(os.path.join(ckpt_dir, c)) / (1024 * 1024)
+        print(f"  {c} ({size_mb:.1f} MB)")
+else:
+    print(f"No checkpoints found at {ckpt_dir}")
 ```
 
 ### Hyperparameter Tuning Quick Reference
@@ -332,10 +339,10 @@ EXP_NAME    = "fisheye_rectification"
 # After training, checkpoints are at:
 #   {RESULTS_DIR}/{EXP_NAME}/checkpoints/latest_net_G_AB.pth
 #   {RESULTS_DIR}/{EXP_NAME}/checkpoints/{epoch}_net_G_AB.pth
-CHECKPOINT = f"{RESULTS_DIR}/{EXP_NAME}/checkpoints/latest_net_G_AB.pth"
+CHECKPOINT = f"{RESULTS_DIR}/{EXP_NAME}/checkpoints/1_net_G_AB.pth"
 
 # Test images directory
-TEST_DIR = "/content/kaggle_data/test-originals"     # <-- ADJUST THIS
+TEST_DIR = "/content/test-originals"     # <-- ADJUST THIS
 
 # Output
 SUBMISSION_DIR = "/content/submission"
