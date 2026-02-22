@@ -18,9 +18,10 @@ This script clones the repo, installs deps, and runs the preprocessing pipeline 
 # Install preprocessing dependencies
 !pip install -q Pillow numpy PyYAML
 
-# Install FEGAN training dependencies (needed later, install now to save time)
+# Install FEGAN training + submission dependencies (install now to save time)
 !pip install -q torch torchvision numpy matplotlib Pillow opencv-python \
-    scikit-image sewar dominate beautifulsoup4 requests tensorboard
+    scikit-image sewar dominate beautifulsoup4 requests tensorboard \
+    realesrgan basicsr
 
 # ============================================================
 # CELL 2: Mount Google Drive (optional - for saving checkpoints)
@@ -215,6 +216,8 @@ print("Dataset verified.")
 #     --lambda_G 1.0 --lambda_gc 1.0 --lambda_AB 10.0 \
 #     --lambda_smooth 2.0 --lambda_crossflow 2.0 \
 #     --lambda_radial 0.5 --lambda_rot 0.1 --identity 0 \
+#     --lambda_metric 0.0 \
+#     --w_edge 0.40 --w_line 0.22 --w_grad 0.18 --w_ssim 0.15 --w_pixel 0.05 \
 #     --save_epoch_freq 2 --print_freq 10 --nThreads 2 \
 #     --gpu_ids 0 --tensorboard \
 #     --continue_train \
@@ -261,6 +264,9 @@ print("Dataset verified.")
 Train in phases to get stable GAN convergence first, then align with competition metrics:
 
 ```python
+# Ensure CWD is FEGAN-master (already set by Cell 2 above, but safe to repeat)
+%cd {FEGAN_ROOT}
+
 # Phase 1 (epochs 1-50): GAN + geometry only
 !python train.py \
     --dataroot "{DATAROOT}" --name "{EXP_NAME}" --results_root "{RESULTS_DIR}" \
@@ -357,7 +363,8 @@ print(f"Test images: {len(os.listdir(TEST_DIR))} files in {TEST_DIR}")
     --upsample_flow 2.0 \
     --gpu_ids 0 \
     --jpeg_quality 95 \
-    --upsampler bicubic       # or "realesrgan" (requires: pip install realesrgan basicsr)
+    --upsampler bicubic
+# For better upscaling, use: --upsampler realesrgan (requires: pip install realesrgan basicsr)
 
 # ============================================================
 # CELL 3: Verify submission

@@ -1,4 +1,5 @@
 import os.path
+import torch
 import torchvision.transforms as transforms
 from data.base_dataset import BaseDataset, get_transform
 from data.image_folder import make_dataset
@@ -25,11 +26,13 @@ class UnalignedDataset(BaseDataset):
         self.B_size = len(self.B_paths)
         self.transform = get_transform(opt)
 
-        # Build lookup from stem -> BtoA path for paired ground truth
-        self.btoa_by_stem = {}
-        for p in self.BtoA_paths:
+        # Build lookup from stem -> A path (clean images) for paired ground truth.
+        # When which_direction=BtoA, generator input is from B (distorted) and
+        # the metric loss needs the matching A (clean) as target.
+        self.a_by_stem = {}
+        for p in self.A_paths:
             stem = os.path.splitext(os.path.basename(p))[0]
-            self.btoa_by_stem[stem] = p
+            self.a_by_stem[stem] = p
 
     def __getitem__(self, index):
         A_path = self.A_paths[index % self.A_size]
@@ -41,9 +44,11 @@ class UnalignedDataset(BaseDataset):
         B_path = self.B_paths[index_B]
         BtoA_path = self.BtoA_paths[index_B]
 
-        # Paired ground truth: the BtoA image matching A's stem (not random B)
-        A_stem = os.path.splitext(os.path.basename(A_path))[0]
-        paired_gt_path = self.btoa_by_stem.get(A_stem, BtoA_path)
+        # Paired ground truth: the clean A image matching B's stem.
+        # When which_direction=BtoA, B is the generator input (distorted) and
+        # the metric loss needs the matching A (clean) as target.
+        B_stem = os.path.splitext(os.path.basename(B_path))[0]
+        paired_gt_path = self.a_by_stem.get(B_stem, A_path)
 
         A_img = Image.open(A_path).convert('RGB')
         B_img = Image.open(B_path).convert('RGB')
@@ -51,8 +56,18 @@ class UnalignedDataset(BaseDataset):
         PairedGT_img = Image.open(paired_gt_path).convert('RGB')
 
         A = self.transform(A_img)
+
+        # Save RNG state before B transform so PairedGT gets the same
+        # random crop/flip — needed for pixel-aligned metric loss.
+        torch_rng_state = torch.random.get_rng_state()
+        py_rng_state = random.getstate()
         B = self.transform(B_img)
+
         BtoA = self.transform(BtoA_img)
+
+        # Replay the same random crop/flip for PairedGT
+        torch.random.set_rng_state(torch_rng_state)
+        random.setstate(py_rng_state)
         PairedGT = self.transform(PairedGT_img)
 
         if self.opt.which_direction == 'BtoA':

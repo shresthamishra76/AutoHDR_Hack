@@ -1,9 +1,11 @@
 """Smoke tests for competition-aligned losses."""
 
+import os
 import sys
 import torch
 
-sys.path.insert(0, "..")
+# Add FEGAN-master to path so "losses" package can be imported from any CWD
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from losses.edge_similarity import EdgeSimilarityLoss
 from losses.line_straightness import LineStraightnessLoss
 from losses.gradient_orientation import GradientOrientationLoss

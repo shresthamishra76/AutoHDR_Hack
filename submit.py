@@ -62,8 +62,15 @@ def rectify_image(netG, image_tensor, device, upsample_flow=2.0):
     return fake
 
 
-def upsample_realesrgan(image_arr, scale=4):
-    """Upsample using Real-ESRGAN. image_arr is uint8 BGR numpy array."""
+_realesrgan_upsampler = None
+
+
+def get_realesrgan_upsampler(scale=4, device="cpu", half=False):
+    """Lazily create and cache the Real-ESRGAN upsampler (created once, reused)."""
+    global _realesrgan_upsampler
+    if _realesrgan_upsampler is not None:
+        return _realesrgan_upsampler
+
     try:
         from basicsr.archs.rrdbnet_arch import RRDBNet
         from realesrgan import RealESRGANer
@@ -74,54 +81,68 @@ def upsample_realesrgan(image_arr, scale=4):
 
     model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64,
                     num_block=23, num_grow_ch=32, scale=scale)
-    upsampler = RealESRGANer(
-        scale=scale, model_path=None, dni_weight=None,
-        model=model, half=False, device="cpu"
+
+    model_url = (
+        "https://github.com/xinntao/Real-ESRGAN/releases/download/"
+        "v0.1.0/RealESRGAN_x4plus.pth"
     )
-    # RealESRGANer.enhance expects BGR uint8
+
+    # Check for a local cached copy first
+    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "realesrgan")
+    os.makedirs(cache_dir, exist_ok=True)
+    model_path = os.path.join(cache_dir, f"RealESRGAN_x{scale}plus.pth")
+
+    if not os.path.isfile(model_path):
+        print(f"Downloading Real-ESRGAN weights to {model_path}...")
+        import urllib.request
+        urllib.request.urlretrieve(model_url, model_path)
+
+    _realesrgan_upsampler = RealESRGANer(
+        scale=scale, model_path=model_path,
+        model=model, half=half, device=device
+    )
+    return _realesrgan_upsampler
+
+
+def upsample_realesrgan(image_arr, scale=4, device="cpu"):
+    """Upsample using Real-ESRGAN. image_arr is uint8 BGR numpy array."""
+    upsampler = get_realesrgan_upsampler(scale=scale, device=device)
     output, _ = upsampler.enhance(image_arr, outscale=scale)
     return output
 
 
-def check_quality(original_arr, corrected_arr, image_name):
-    """Hard-fail detection: check for severe artifacts."""
-    warnings = []
+def check_quality(corrected_arr, image_name):
+    """Hard-fail detection: check for catastrophic artifacts in corrected output.
 
-    # Check max regional difference (split into 4x4 grid)
-    h, w = corrected_arr.shape[:2]
-    gh, gw = h // 4, w // 4
-    for gy in range(4):
-        for gx in range(4):
-            region_orig = original_arr[gy*gh:(gy+1)*gh, gx*gw:(gx+1)*gw].astype(float)
-            region_corr = corrected_arr[gy*gh:(gy+1)*gh, gx*gw:(gx+1)*gw].astype(float)
-            region_diff = np.abs(region_orig - region_corr).mean()
-            if region_diff > 100:
-                warnings.append(
-                    f"  HIGH REGIONAL DIFF ({region_diff:.1f}) at grid ({gy},{gx})"
-                )
+    Checks:
+    - Large black/white regions (model collapse or padding artifacts)
+    - Very low edge count (blank or washed-out output)
+    """
+    warnings_list = []
 
-    # Check edge similarity (simple Canny comparison)
-    gray_orig = cv2.cvtColor(original_arr, cv2.COLOR_RGB2GRAY)
-    gray_corr = cv2.cvtColor(corrected_arr, cv2.COLOR_RGB2GRAY)
-    edges_orig = cv2.Canny(gray_orig, 50, 150)
-    edges_corr = cv2.Canny(gray_corr, 50, 150)
+    gray = cv2.cvtColor(corrected_arr, cv2.COLOR_RGB2GRAY)
 
-    # Edge F1
-    tp = np.logical_and(edges_orig > 0, edges_corr > 0).sum()
-    fp = np.logical_and(edges_orig == 0, edges_corr > 0).sum()
-    fn = np.logical_and(edges_orig > 0, edges_corr == 0).sum()
-    precision = tp / (tp + fp + 1e-8)
-    recall = tp / (tp + fn + 1e-8)
-    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+    # Check for large black regions (padding/zeros from grid_sample)
+    black_frac = (gray < 5).sum() / gray.size
+    if black_frac > 0.25:
+        warnings_list.append(f"  HIGH BLACK REGION ({black_frac:.1%} of pixels < 5)")
 
-    if f1 < 0.2:
-        warnings.append(f"  LOW EDGE F1 ({f1:.3f})")
+    # Check for large white regions (saturation)
+    white_frac = (gray > 250).sum() / gray.size
+    if white_frac > 0.25:
+        warnings_list.append(f"  HIGH WHITE REGION ({white_frac:.1%} of pixels > 250)")
 
-    if warnings:
+    # Check edge count — very low means washed-out/blank output
+    edges = cv2.Canny(gray, 50, 150)
+    edge_frac = (edges > 0).sum() / edges.size
+    if edge_frac < 0.01:
+        warnings_list.append(f"  VERY LOW EDGE COUNT ({edge_frac:.4f})")
+
+    if warnings_list:
         print(f"  WARNING [{image_name}]:")
-        for w in warnings:
-            print(w)
-    return warnings
+        for w_msg in warnings_list:
+            print(w_msg)
+    return warnings_list
 
 
 def main():
@@ -195,7 +216,7 @@ def main():
         if args.upsampler == "realesrgan":
             # Real-ESRGAN expects BGR
             arr_bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-            arr_bgr = upsample_realesrgan(arr_bgr)
+            arr_bgr = upsample_realesrgan(arr_bgr, device=str(device))
             arr_up = cv2.cvtColor(arr_bgr, cv2.COLOR_BGR2RGB)
             result = Image.fromarray(arr_up)
             result = result.resize(original_size, Image.LANCZOS)
@@ -203,11 +224,10 @@ def main():
             result = Image.fromarray(arr)
             result = result.resize(original_size, Image.BICUBIC)
 
-        # Quality check
+        # Quality check for catastrophic artifacts
         result_arr = np.array(result)
-        original_resized = np.array(img.resize(original_size, Image.BICUBIC))
-        w = check_quality(original_resized, result_arr, img_path.name)
-        if w:
+        quality_warnings = check_quality(result_arr, img_path.name)
+        if quality_warnings:
             total_warnings += 1
 
         image_id = img_path.stem

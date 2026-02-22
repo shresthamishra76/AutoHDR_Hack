@@ -84,7 +84,7 @@ class GcGANCrossModel(BaseModel):
             # Competition metric loss
             self.loss_metric = 0.0
             self.loss_metric_details = {}
-            if opt.lambda_metric > 0:
+            if getattr(opt, 'lambda_metric', 0) > 0:
                 from losses import WeightedCompositeLoss
                 self.criterionMetric = WeightedCompositeLoss(
                     w_edge=opt.w_edge, w_line=opt.w_line, w_grad=opt.w_grad,
@@ -128,7 +128,7 @@ class GcGANCrossModel(BaseModel):
         input_B = input['B' if AtoB else 'A']
         
         self.gt_B = input['BtoA'] # The ground truth image of domain B
-        self.paired_gt = input['PairedGT']  # Paired ground truth for metric loss
+        self.paired_gt = input.get('PairedGT', self.gt_B)  # Paired ground truth for metric loss
         self.input_A.resize_(input_A.size()).copy_(input_A)
         self.input_B.resize_(input_B.size()).copy_(input_B)
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
@@ -295,7 +295,7 @@ class GcGANCrossModel(BaseModel):
         loss_G = loss_G_AB + loss_G_gc_AB + loss_gc + loss_crossflow + loss_radialflow + loss_smooth + loss_rotflow
 
         # Competition metric loss
-        if self.opt.lambda_metric > 0:
+        if getattr(self.opt, 'lambda_metric', 0) > 0:
             loss_metric, metric_details = self.criterionMetric(fake_B, self.paired_gt.to(self.device))
             loss_metric = loss_metric * self.opt.lambda_metric
             loss_G = loss_G + loss_metric
@@ -362,7 +362,7 @@ class GcGANCrossModel(BaseModel):
                                   ('Gc', self.loss_gc), ('G_gc_AB', self.loss_G_gc_AB), ('Smooth', self.loss_smooth),
                                   ('Crossflow', self.loss_crossflow), ('Radial-flow', self.loss_radialflow),
                                   ('Rotation-flow', self.loss_rotflow)])
-        if self.opt.lambda_metric > 0:
+        if getattr(self.opt, 'lambda_metric', 0) > 0:
             ret_errors['Metric'] = self.loss_metric
             for k, v in self.loss_metric_details.items():
                 ret_errors[f'M_{k}'] = v
