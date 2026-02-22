@@ -60,8 +60,8 @@ class GradientOrientationLoss(nn.Module):
         gx_t = F.conv2d(gray_tgt, self.sobel_x, padding=1)
         gy_t = F.conv2d(gray_tgt, self.sobel_y, padding=1)
 
-        mag_p = (gx_p ** 2 + gy_p ** 2).sqrt()
-        mag_t = (gx_t ** 2 + gy_t ** 2).sqrt()
+        mag_p = (gx_p ** 2 + gy_p ** 2 + 1e-8).sqrt()
+        mag_t = (gx_t ** 2 + gy_t ** 2 + 1e-8).sqrt()
         theta_p = torch.atan2(gy_p, gx_p)
         theta_t = torch.atan2(gy_t, gx_t)
 
