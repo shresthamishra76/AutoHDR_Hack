@@ -30,7 +30,7 @@ class LineStraightnessLoss(nn.Module):
         gx = F.conv2d(gray, self.sobel_x, padding=1)
         gy = F.conv2d(gray, self.sobel_y, padding=1)
 
-        mag = (gx ** 2 + gy ** 2).sqrt()
+        mag = (gx ** 2 + gy ** 2 + 1e-8).sqrt()
         theta = torch.atan2(gy, gx)  # [-pi, pi]
 
         # Use sin/cos to avoid angle wrapping issues at +/-pi

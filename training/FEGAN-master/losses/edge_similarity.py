@@ -26,7 +26,7 @@ class EdgeSimilarityLoss(nn.Module):
     def _edge_magnitude(self, gray):
         gx = F.conv2d(gray, self.sobel_x, padding=1)
         gy = F.conv2d(gray, self.sobel_y, padding=1)
-        return (gx ** 2 + gy ** 2).sqrt()
+        return (gx ** 2 + gy ** 2 + 1e-8).sqrt()
 
     def _soft_f1(self, pred_edges, tgt_edges, eps=1e-7):
         intersection = (pred_edges * tgt_edges).sum()
