@@ -320,6 +320,122 @@ Train in phases to get stable GAN convergence first, then align with competition
 
 ---
 
+## Script 2.5: Evaluation & Visualization (Validation Set)
+
+Run inference on the validation set and visually compare predictions vs ground truth. Re-run the visualization cell to see a different random sample.
+
+```python
+# ============================================================
+# CELL 1: Set paths (same as training)
+# ============================================================
+import os
+
+REPO_ROOT   = "/content/AutoHDR_Hack"
+DATAROOT    = "/content/datasets/fisheye"
+RESULTS_DIR = "/content/results"
+EXP_NAME    = "fisheye_rectification"
+
+CHECKPOINT = f"{RESULTS_DIR}/{EXP_NAME}/checkpoints/latest_net_G_AB.pth"
+VAL_INPUT  = os.path.join(DATAROOT, "valB")       # distorted validation images
+VAL_GT     = os.path.join(DATAROOT, "valA")        # clean ground truth images
+VAL_OUTPUT = "/content/val_predictions"             # where predictions go
+
+assert os.path.isfile(CHECKPOINT), f"Checkpoint not found: {CHECKPOINT}"
+assert os.path.isdir(VAL_INPUT), f"valB not found: {VAL_INPUT}"
+assert os.path.isdir(VAL_GT), f"valA not found: {VAL_GT}"
+print(f"Checkpoint: {CHECKPOINT}")
+print(f"Val images: {len(os.listdir(VAL_INPUT))} in {VAL_INPUT}")
+
+# ============================================================
+# CELL 2: Run inference on validation set
+# ============================================================
+%cd {REPO_ROOT}
+
+!python submit.py \
+    --checkpoint "{CHECKPOINT}" \
+    --test_dir "{VAL_INPUT}" \
+    --output_dir "{VAL_OUTPUT}" \
+    --zip_path "/content/_val_dummy.zip" \
+    --size 256 \
+    --ngf 64 \
+    --which_model unet_128 \
+    --use_att \
+    --upsample_flow 2.0 \
+    --gpu_ids 0 \
+    --jpeg_quality 95 \
+    --upsampler bicubic
+
+print(f"Predictions: {len(os.listdir(VAL_OUTPUT))} files in {VAL_OUTPUT}")
+
+# ============================================================
+# CELL 3: Visualize predictions vs ground truth (re-run for new sample)
+# ============================================================
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import random
+import glob
+
+pred_dir = VAL_OUTPUT
+gt_dir   = VAL_GT
+
+# Find matching filenames between predictions and ground truth
+pred_files = {os.path.splitext(f)[0]: os.path.join(pred_dir, f)
+              for f in os.listdir(pred_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))}
+gt_files   = {os.path.splitext(f)[0]: os.path.join(gt_dir, f)
+              for f in os.listdir(gt_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))}
+
+common = sorted(set(pred_files.keys()) & set(gt_files.keys()))
+assert len(common) > 0, "No matching filenames between predictions and ground truth!"
+
+N = min(5, len(common))
+sample = random.sample(common, N)
+print(f"Showing {N} random samples out of {len(common)} matched images")
+
+fig, axes = plt.subplots(N, 3, figsize=(15, 5 * N))
+if N == 1:
+    axes = axes[np.newaxis, :]  # ensure 2D indexing
+
+for i, name in enumerate(sample):
+    # Load images as RGB
+    pred = cv2.imread(pred_files[name])
+    pred = cv2.cvtColor(pred, cv2.COLOR_BGR2RGB)
+
+    gt = cv2.imread(gt_files[name])
+    gt = cv2.cvtColor(gt, cv2.COLOR_BGR2RGB)
+
+    # Resize GT to match prediction dimensions if needed
+    if gt.shape[:2] != pred.shape[:2]:
+        gt = cv2.resize(gt, (pred.shape[1], pred.shape[0]), interpolation=cv2.INTER_CUBIC)
+
+    # Compute difference overlay
+    diff = np.abs(pred.astype(np.float32) - gt.astype(np.float32))
+    diff_gray = np.mean(diff, axis=2) / 255.0                     # [0, 1]
+    heatmap = plt.cm.hot(diff_gray)[:, :, :3]                     # RGB from colormap
+    overlay = (0.6 * gt.astype(np.float32) / 255.0
+             + 0.4 * heatmap)
+    overlay = np.clip(overlay, 0, 1)
+
+    # Plot
+    axes[i, 0].imshow(pred)
+    axes[i, 0].set_title(f"Prediction: {name}", fontsize=10)
+    axes[i, 0].axis("off")
+
+    axes[i, 1].imshow(gt)
+    axes[i, 1].set_title(f"Ground Truth: {name}", fontsize=10)
+    axes[i, 1].axis("off")
+
+    axes[i, 2].imshow(overlay)
+    axes[i, 2].set_title(f"Diff Overlay: {name}", fontsize=10)
+    axes[i, 2].axis("off")
+
+plt.suptitle("Prediction vs Ground Truth (hot colormap: black=match, red/yellow=error)", fontsize=13)
+plt.tight_layout()
+plt.show()
+```
+
+---
+
 ## Script 3: Submission (Creates submission.zip)
 
 Runs the trained generator on the test set and creates a Kaggle-ready `submission.zip`.
