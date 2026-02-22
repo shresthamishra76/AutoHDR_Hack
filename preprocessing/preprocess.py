@@ -257,8 +257,11 @@ def split_pairs(pairs: list, cfg: dict) -> dict:
     n_train = int(n * train_frac)
     n_val = int(n * val_frac)
 
+    train_pairs = [pairs[i] for i in indices[:n_train]]
+    train_pairs = train_pairs[:len(train_pairs) // 4]
+
     return {
-        "train": [pairs[i] for i in indices[:n_train]],
+        "train": train_pairs,
         "val": [pairs[i] for i in indices[n_train : n_train + n_val]],
         "test": [pairs[i] for i in indices[n_train + n_val :]],
     }
