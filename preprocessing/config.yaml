@@ -99,6 +99,14 @@ fegan:
   lambda_radial: 0.5
   lambda_rot: 0.1
 
+  # Competition metric loss weights (lambda_metric=0 disables)
+  lambda_metric: 0.0
+  w_edge: 0.40
+  w_line: 0.22
+  w_grad: 0.18
+  w_ssim: 0.15
+  w_pixel: 0.05
+
   # GPU configuration: "0" for single GPU, "0,1" for multi, "-1" for CPU
   gpu_ids: "0"
 

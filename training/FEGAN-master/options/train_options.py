@@ -36,6 +36,13 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--lambda_radial', type=float, default=1, help='self-flow constraint for fisheye flow map')
         self.parser.add_argument('--lambda_smooth', type=float, default=1, help='smooth constraint for fisheye flow map')
         self.parser.add_argument('--lambda_rot', type=float, default=1, help='rotation constraint for fisheye flow map')
-        
+
+        self.parser.add_argument('--lambda_metric', type=float, default=0.0, help='Weight for competition metric loss (0=disabled)')
+        self.parser.add_argument('--w_edge', type=float, default=0.40, help='Edge similarity weight within metric loss')
+        self.parser.add_argument('--w_line', type=float, default=0.22, help='Line straightness weight within metric loss')
+        self.parser.add_argument('--w_grad', type=float, default=0.18, help='Gradient orientation weight within metric loss')
+        self.parser.add_argument('--w_ssim', type=float, default=0.15, help='SSIM weight within metric loss')
+        self.parser.add_argument('--w_pixel', type=float, default=0.05, help='Pixel accuracy weight within metric loss')
+
         self.parser.add_argument('--no_rot', action='store_true', help="If true, no rotation on input image.")
         self.isTrain = True

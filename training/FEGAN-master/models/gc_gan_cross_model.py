@@ -80,7 +80,17 @@ class GcGANCrossModel(BaseModel):
             self.criterionGc = torch.nn.L1Loss()
             self.criterionCrossFlow = torch.nn.L1Loss()
             self.criterionRotFlow = torch.nn.L1Loss()
-            
+
+            # Competition metric loss
+            self.loss_metric = 0.0
+            self.loss_metric_details = {}
+            if opt.lambda_metric > 0:
+                from losses import WeightedCompositeLoss
+                self.criterionMetric = WeightedCompositeLoss(
+                    w_edge=opt.w_edge, w_line=opt.w_line, w_grad=opt.w_grad,
+                    w_ssim=opt.w_ssim, w_pixel=opt.w_pixel
+                ).to(self.device)
+
             # initialize optimizers            
             self.optimizer_G = torch.optim.Adam((self.netG_AB.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizer_D_B = torch.optim.Adam((self.netD_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -118,6 +128,7 @@ class GcGANCrossModel(BaseModel):
         input_B = input['B' if AtoB else 'A']
         
         self.gt_B = input['BtoA'] # The ground truth image of domain B
+        self.paired_gt = input['PairedGT']  # Paired ground truth for metric loss
         self.input_A.resize_(input_A.size()).copy_(input_A)
         self.input_B.resize_(input_B.size()).copy_(input_B)
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
@@ -283,6 +294,17 @@ class GcGANCrossModel(BaseModel):
 
         loss_G = loss_G_AB + loss_G_gc_AB + loss_gc + loss_crossflow + loss_radialflow + loss_smooth + loss_rotflow
 
+        # Competition metric loss
+        if self.opt.lambda_metric > 0:
+            loss_metric, metric_details = self.criterionMetric(fake_B, self.paired_gt.to(self.device))
+            loss_metric = loss_metric * self.opt.lambda_metric
+            loss_G = loss_G + loss_metric
+            self.loss_metric = loss_metric.item()
+            self.loss_metric_details = metric_details
+        else:
+            self.loss_metric = 0.0
+            self.loss_metric_details = {}
+
         loss_G.backward()
 
         self.flow_A = flow_A
@@ -338,8 +360,12 @@ class GcGANCrossModel(BaseModel):
     def get_current_errors(self):
         ret_errors = OrderedDict([('D_B_real', self.loss_D_B_real), ('D_B_distort', self.loss_D_B_distort), ('G_AB', self.loss_G_AB),
                                   ('Gc', self.loss_gc), ('G_gc_AB', self.loss_G_gc_AB), ('Smooth', self.loss_smooth),
-                                  ('Crossflow', self.loss_crossflow), ('Radial-flow', self.loss_radialflow), 
+                                  ('Crossflow', self.loss_crossflow), ('Radial-flow', self.loss_radialflow),
                                   ('Rotation-flow', self.loss_rotflow)])
+        if self.opt.lambda_metric > 0:
+            ret_errors['Metric'] = self.loss_metric
+            for k, v in self.loss_metric_details.items():
+                ret_errors[f'M_{k}'] = v
         return ret_errors
 
     def get_current_visuals(self):

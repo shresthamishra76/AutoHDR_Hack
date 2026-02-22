@@ -25,6 +25,12 @@ class UnalignedDataset(BaseDataset):
         self.B_size = len(self.B_paths)
         self.transform = get_transform(opt)
 
+        # Build lookup from stem -> BtoA path for paired ground truth
+        self.btoa_by_stem = {}
+        for p in self.BtoA_paths:
+            stem = os.path.splitext(os.path.basename(p))[0]
+            self.btoa_by_stem[stem] = p
+
     def __getitem__(self, index):
         A_path = self.A_paths[index % self.A_size]
         index_A = index % self.A_size
@@ -34,14 +40,20 @@ class UnalignedDataset(BaseDataset):
             index_B = random.randint(0, self.B_size - 1)
         B_path = self.B_paths[index_B]
         BtoA_path = self.BtoA_paths[index_B]
-        # print('(A, B) = (%d, %d)' % (index_A, index_B))
+
+        # Paired ground truth: the BtoA image matching A's stem (not random B)
+        A_stem = os.path.splitext(os.path.basename(A_path))[0]
+        paired_gt_path = self.btoa_by_stem.get(A_stem, BtoA_path)
+
         A_img = Image.open(A_path).convert('RGB')
         B_img = Image.open(B_path).convert('RGB')
         BtoA_img = Image.open(BtoA_path).convert('RGB')
+        PairedGT_img = Image.open(paired_gt_path).convert('RGB')
 
         A = self.transform(A_img)
         B = self.transform(B_img)
         BtoA = self.transform(BtoA_img)
+        PairedGT = self.transform(PairedGT_img)
 
         if self.opt.which_direction == 'BtoA':
             input_nc = self.opt.output_nc
@@ -58,8 +70,8 @@ class UnalignedDataset(BaseDataset):
             tmp = B[0, ...] * 0.299 + B[1, ...] * 0.587 + B[2, ...] * 0.114
             B = tmp.unsqueeze(0)
         return {'A': A, 'B': B,
-                'A_paths': A_path, 'B_paths': B_path, 
-                'BtoA': BtoA
+                'A_paths': A_path, 'B_paths': B_path,
+                'BtoA': BtoA, 'PairedGT': PairedGT
                 }
 
     def __len__(self):
